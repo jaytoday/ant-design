@@ -1,94 +1,69 @@
 import * as React from 'react';
 import classNames from 'classnames';
-import TimelineItem, { TimeLineItemProps } from './TimelineItem';
-import Icon from '../icon';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
+
+import { devUseWarning } from '../_util/warning';
+import { ConfigContext } from '../config-provider';
+// CSSINJS
+import useStyle from './style';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import type { TimelineItemProps } from './TimelineItem';
+import TimelineItem from './TimelineItem';
+import TimelineItemList from './TimelineItemList';
+import useItems from './useItems';
 
 export interface TimelineProps {
   prefixCls?: string;
   className?: string;
+  rootClassName?: string;
   /** 指定最后一个幽灵节点是否存在或内容 */
   pending?: React.ReactNode;
   pendingDot?: React.ReactNode;
   style?: React.CSSProperties;
   reverse?: boolean;
   mode?: 'left' | 'alternate' | 'right';
+  items?: TimelineItemProps[];
+  children?: React.ReactNode;
 }
 
-export default class Timeline extends React.Component<TimelineProps, any> {
-  static Item: React.SFC<TimeLineItemProps> = TimelineItem;
-  static defaultProps = {
-    reverse: false,
-    mode: '',
-  };
+type CompoundedComponent = React.FC<TimelineProps> & {
+  Item: React.FC<TimelineItemProps>;
+};
 
-  renderTimeline = ({ getPrefixCls }: ConfigConsumerProps) => {
-    const {
-      prefixCls: customizePrefixCls,
-      pending = null,
-      pendingDot,
-      children,
-      className,
-      reverse,
-      mode,
-      ...restProps
-    } = this.props;
-    const prefixCls = getPrefixCls('timeline', customizePrefixCls);
-    const pendingNode = typeof pending === 'boolean' ? null : pending;
-    const classString = classNames(
-      prefixCls,
-      {
-        [`${prefixCls}-pending`]: !!pending,
-        [`${prefixCls}-reverse`]: !!reverse,
-        [`${prefixCls}-${mode}`]: !!mode,
-      },
-      className,
-    );
+const Timeline: CompoundedComponent = (props) => {
+  const { getPrefixCls, direction, timeline } = React.useContext(ConfigContext);
+  const { prefixCls: customizePrefixCls, children, items, className, style, ...restProps } = props;
+  const prefixCls = getPrefixCls('timeline', customizePrefixCls);
 
-    const pendingItem = !!pending ? (
-      <TimelineItem pending={!!pending} dot={pendingDot || <Icon type="loading" />}>
-        {pendingNode}
-      </TimelineItem>
-    ) : null;
+  // =================== Warning =====================
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Timeline');
 
-    const timeLineItems = !!reverse
-      ? [pendingItem, ...React.Children.toArray(children).reverse()]
-      : [...React.Children.toArray(children), pendingItem];
-
-    // Remove falsy items
-    const truthyItems = timeLineItems.filter(item => !!item);
-    const itemsCount = React.Children.count(truthyItems);
-    const lastCls = `${prefixCls}-item-last`;
-    const items = React.Children.map(truthyItems, (ele: React.ReactElement<any>, idx) =>
-      React.cloneElement(ele, {
-        className: classNames([
-          ele.props.className,
-          !reverse && !!pending
-            ? idx === itemsCount - 2
-              ? lastCls
-              : ''
-            : idx === itemsCount - 1
-            ? lastCls
-            : '',
-          mode === 'alternate'
-            ? idx % 2 === 0
-              ? `${prefixCls}-item-left`
-              : `${prefixCls}-item-right`
-            : mode === 'right'
-            ? `${prefixCls}-item-right`
-            : '',
-        ]),
-      }),
-    );
-
-    return (
-      <ul {...restProps} className={classString}>
-        {items}
-      </ul>
-    );
-  };
-
-  render() {
-    return <ConfigConsumer>{this.renderTimeline}</ConfigConsumer>;
+    warning.deprecated(!children, 'Timeline.Item', 'items');
   }
+
+  // Style
+  const rootCls = useCSSVarCls(prefixCls);
+  const [wrapCSSVar, hashId, cssVarCls] = useStyle(prefixCls, rootCls);
+
+  const mergedItems: TimelineItemProps[] = useItems(items, children);
+
+  return wrapCSSVar(
+    <TimelineItemList
+      {...restProps}
+      className={classNames(timeline?.className, className, cssVarCls, rootCls)}
+      style={{ ...timeline?.style, ...style }}
+      prefixCls={prefixCls}
+      direction={direction}
+      items={mergedItems}
+      hashId={hashId}
+    />,
+  );
+};
+
+Timeline.Item = TimelineItem;
+
+if (process.env.NODE_ENV !== 'production') {
+  Timeline.displayName = 'Timeline';
 }
+
+export default Timeline;

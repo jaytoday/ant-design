@@ -1,77 +1,200 @@
 import * as React from 'react';
+import DownOutlined from '@ant-design/icons/DownOutlined';
+import UpOutlined from '@ant-design/icons/UpOutlined';
 import classNames from 'classnames';
+import type { InputNumberProps as RcInputNumberProps, ValueType } from 'rc-input-number';
 import RcInputNumber from 'rc-input-number';
-import Icon from '../icon';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
-import { Omit } from '../_util/type';
 
-// omitting this attrs because they conflicts with the ones defined in InputNumberProps
-export type OmitAttrs = 'defaultValue' | 'onChange' | 'size';
+import type { InputStatus } from '../_util/statusUtils';
+import { getMergedStatus, getStatusClassNames } from '../_util/statusUtils';
+import ConfigProvider, { ConfigContext } from '../config-provider';
+import DisabledContext from '../config-provider/DisabledContext';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import { FormItemInputContext, NoFormStyle } from '../form/context';
+import { NoCompactStyle, useCompactItemContext } from '../space/Compact';
+import useStyle from './style';
 
-export interface InputNumberProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, OmitAttrs> {
+export interface InputNumberProps<T extends ValueType = ValueType>
+  extends Omit<RcInputNumberProps<T>, 'prefix' | 'size' | 'controls'> {
   prefixCls?: string;
-  min?: number;
-  max?: number;
-  value?: number;
-  step?: number | string;
-  defaultValue?: number;
-  tabIndex?: number;
-  onChange?: (value: number | undefined) => void;
+  rootClassName?: string;
+  addonBefore?: React.ReactNode;
+  addonAfter?: React.ReactNode;
+  prefix?: React.ReactNode;
+  size?: SizeType;
   disabled?: boolean;
-  size?: 'large' | 'small' | 'default';
-  formatter?: (value: number | string | undefined) => string;
-  parser?: (displayValue: string | undefined) => number;
-  decimalSeparator?: string;
-  placeholder?: string;
-  style?: React.CSSProperties;
-  className?: string;
-  name?: string;
-  id?: string;
-  precision?: number;
+  bordered?: boolean;
+  status?: InputStatus;
+  controls?: boolean | { upIcon?: React.ReactNode; downIcon?: React.ReactNode };
 }
 
-export default class InputNumber extends React.Component<InputNumberProps, any> {
-  static defaultProps = {
-    step: 1,
-  };
+const InputNumber = React.forwardRef<HTMLInputElement, InputNumberProps>((props, ref) => {
+  const { getPrefixCls, direction } = React.useContext(ConfigContext);
 
-  private inputNumberRef: any;
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
-  focus() {
-    this.inputNumberRef.focus();
+  React.useImperativeHandle(ref, () => inputRef.current!);
+
+  const {
+    className,
+    rootClassName,
+    size: customizeSize,
+    disabled: customDisabled,
+    prefixCls: customizePrefixCls,
+    addonBefore,
+    addonAfter,
+    prefix,
+    bordered = true,
+    readOnly,
+    status: customStatus,
+    controls,
+    ...others
+  } = props;
+
+  const prefixCls = getPrefixCls('input-number', customizePrefixCls);
+
+  // Style
+  const rootCls = useCSSVarCls(prefixCls);
+  const [wrapCSSVar, hashId, cssVarCls] = useStyle(prefixCls, rootCls);
+
+  const { compactSize, compactItemClassnames } = useCompactItemContext(prefixCls, direction);
+  let upIcon = <UpOutlined className={`${prefixCls}-handler-up-inner`} />;
+  let downIcon = <DownOutlined className={`${prefixCls}-handler-down-inner`} />;
+  const controlsTemp = typeof controls === 'boolean' ? controls : undefined;
+
+  if (typeof controls === 'object') {
+    upIcon =
+      typeof controls.upIcon === 'undefined' ? (
+        upIcon
+      ) : (
+        <span className={`${prefixCls}-handler-up-inner`}>{controls.upIcon}</span>
+      );
+    downIcon =
+      typeof controls.downIcon === 'undefined' ? (
+        downIcon
+      ) : (
+        <span className={`${prefixCls}-handler-down-inner`}>{controls.downIcon}</span>
+      );
   }
 
-  blur() {
-    this.inputNumberRef.blur();
-  }
+  const {
+    hasFeedback,
+    status: contextStatus,
+    isFormItemInput,
+    feedbackIcon,
+  } = React.useContext(FormItemInputContext);
+  const mergedStatus = getMergedStatus(contextStatus, customStatus);
 
-  renderInputNumber = ({ getPrefixCls }: ConfigConsumerProps) => {
-    const { className, size, prefixCls: customizePrefixCls, ...others } = this.props;
-    const prefixCls = getPrefixCls('input-number', customizePrefixCls);
-    const inputNumberClass = classNames(
-      {
-        [`${prefixCls}-lg`]: size === 'large',
-        [`${prefixCls}-sm`]: size === 'small',
-      },
-      className,
-    );
-    const upIcon = <Icon type="up" className={`${prefixCls}-handler-up-inner`} />;
-    const downIcon = <Icon type="down" className={`${prefixCls}-handler-down-inner`} />;
+  const mergedSize = useSize((ctx) => customizeSize ?? compactSize ?? ctx);
 
-    return (
-      <RcInputNumber
-        ref={(c: any) => (this.inputNumberRef = c)}
-        className={inputNumberClass}
-        upHandler={upIcon}
-        downHandler={downIcon}
-        prefixCls={prefixCls}
-        {...others}
-      />
-    );
-  };
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+  const mergedDisabled = customDisabled ?? disabled;
 
-  render() {
-    return <ConfigConsumer>{this.renderInputNumber}</ConfigConsumer>;
-  }
+  const inputNumberClass = classNames(
+    {
+      [`${prefixCls}-lg`]: mergedSize === 'large',
+      [`${prefixCls}-sm`]: mergedSize === 'small',
+      [`${prefixCls}-rtl`]: direction === 'rtl',
+      [`${prefixCls}-borderless`]: !bordered,
+      [`${prefixCls}-in-form-item`]: isFormItemInput,
+    },
+    getStatusClassNames(prefixCls, mergedStatus),
+    hashId,
+  );
+  const wrapperClassName = `${prefixCls}-group`;
+
+  // eslint-disable-next-line react/jsx-no-useless-fragment
+  const suffixNode = hasFeedback && <>{feedbackIcon}</>;
+
+  const element = (
+    <RcInputNumber
+      ref={inputRef}
+      disabled={mergedDisabled}
+      className={classNames(cssVarCls, rootCls, className, rootClassName, compactItemClassnames)}
+      upHandler={upIcon}
+      downHandler={downIcon}
+      prefixCls={prefixCls}
+      readOnly={readOnly}
+      controls={controlsTemp}
+      prefix={prefix}
+      suffix={suffixNode}
+      addonAfter={
+        addonAfter && (
+          <NoCompactStyle>
+            <NoFormStyle override status>
+              {addonAfter}
+            </NoFormStyle>
+          </NoCompactStyle>
+        )
+      }
+      addonBefore={
+        addonBefore && (
+          <NoCompactStyle>
+            <NoFormStyle override status>
+              {addonBefore}
+            </NoFormStyle>
+          </NoCompactStyle>
+        )
+      }
+      classNames={{
+        input: inputNumberClass,
+      }}
+      classes={{
+        affixWrapper: classNames(
+          getStatusClassNames(`${prefixCls}-affix-wrapper`, mergedStatus, hasFeedback),
+          {
+            [`${prefixCls}-affix-wrapper-sm`]: mergedSize === 'small',
+            [`${prefixCls}-affix-wrapper-lg`]: mergedSize === 'large',
+            [`${prefixCls}-affix-wrapper-rtl`]: direction === 'rtl',
+            [`${prefixCls}-affix-wrapper-borderless`]: !bordered,
+          },
+          hashId,
+        ),
+        wrapper: classNames(
+          {
+            [`${wrapperClassName}-rtl`]: direction === 'rtl',
+            [`${prefixCls}-wrapper-disabled`]: mergedDisabled,
+          },
+          hashId,
+        ),
+        group: classNames(
+          {
+            [`${prefixCls}-group-wrapper-sm`]: mergedSize === 'small',
+            [`${prefixCls}-group-wrapper-lg`]: mergedSize === 'large',
+            [`${prefixCls}-group-wrapper-rtl`]: direction === 'rtl',
+          },
+          getStatusClassNames(`${prefixCls}-group-wrapper`, mergedStatus, hasFeedback),
+          hashId,
+        ),
+      }}
+      {...others}
+    />
+  );
+
+  return wrapCSSVar(element);
+});
+
+const TypedInputNumber = InputNumber as unknown as (<T extends ValueType = ValueType>(
+  props: React.PropsWithChildren<InputNumberProps<T>> & React.RefAttributes<HTMLInputElement>,
+) => React.ReactElement) & {
+  displayName?: string;
+  _InternalPanelDoNotUseOrYouWillBeFired: typeof PureInputNumber;
+};
+
+/** @private Internal Component. Do not use in your production. */
+const PureInputNumber: React.FC<InputNumberProps> = (props) => (
+  <ConfigProvider theme={{ components: { InputNumber: { handleVisible: true } } }}>
+    <InputNumber {...props} />
+  </ConfigProvider>
+);
+
+if (process.env.NODE_ENV !== 'production') {
+  TypedInputNumber.displayName = 'InputNumber';
 }
+
+TypedInputNumber._InternalPanelDoNotUseOrYouWillBeFired = PureInputNumber;
+
+export default TypedInputNumber;

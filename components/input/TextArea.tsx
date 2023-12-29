@@ -1,170 +1,130 @@
 import * as React from 'react';
-import omit from 'omit.js';
+import { forwardRef } from 'react';
+import CloseCircleFilled from '@ant-design/icons/CloseCircleFilled';
 import classNames from 'classnames';
-import { polyfill } from 'react-lifecycles-compat';
-import ResizeObserver from 'resize-observer-polyfill';
-import calculateNodeHeight from './calculateNodeHeight';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
+import type { BaseInputProps } from 'rc-input/lib/interface';
+import type { TextAreaRef as RcTextAreaRef } from 'rc-textarea';
+import RcTextArea from 'rc-textarea';
+import type { TextAreaProps as RcTextAreaProps } from 'rc-textarea/lib/interface';
 
-function onNextFrame(cb: () => void) {
-  if (window.requestAnimationFrame) {
-    return window.requestAnimationFrame(cb);
-  }
-  return window.setTimeout(cb, 1);
+import type { InputStatus } from '../_util/statusUtils';
+import { getMergedStatus, getStatusClassNames } from '../_util/statusUtils';
+import { ConfigContext } from '../config-provider';
+import DisabledContext from '../config-provider/DisabledContext';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import { FormItemInputContext } from '../form/context';
+import type { InputFocusOptions } from './Input';
+import { triggerFocus } from './Input';
+import useStyle from './style';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+
+export interface TextAreaProps extends Omit<RcTextAreaProps, 'suffix'> {
+  bordered?: boolean;
+  size?: SizeType;
+  status?: InputStatus;
+  rootClassName?: string;
 }
 
-function clearNextFrameAction(nextFrameId: number) {
-  if (window.cancelAnimationFrame) {
-    window.cancelAnimationFrame(nextFrameId);
-  } else {
-    window.clearTimeout(nextFrameId);
-  }
+export interface TextAreaRef {
+  focus: (options?: InputFocusOptions) => void;
+  blur: () => void;
+  resizableTextArea?: RcTextAreaRef['resizableTextArea'];
 }
 
-export interface AutoSizeType {
-  minRows?: number;
-  maxRows?: number;
-}
+const TextArea = forwardRef<TextAreaRef, TextAreaProps>((props, ref) => {
+  const {
+    prefixCls: customizePrefixCls,
+    bordered = true,
+    size: customizeSize,
+    disabled: customDisabled,
+    status: customStatus,
+    allowClear,
+    classNames: classes,
+    rootClassName,
+    className,
+    ...rest
+  } = props;
+  const { getPrefixCls, direction } = React.useContext(ConfigContext);
 
-export type HTMLTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
+  // ===================== Size =====================
+  const mergedSize = useSize(customizeSize);
 
-export interface TextAreaProps extends HTMLTextareaProps {
-  prefixCls?: string;
-  autosize?: boolean | AutoSizeType;
-  onPressEnter?: React.KeyboardEventHandler<HTMLTextAreaElement>;
-}
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+  const mergedDisabled = customDisabled ?? disabled;
 
-export interface TextAreaState {
-  textareaStyles?: React.CSSProperties;
-}
+  // ===================== Status =====================
+  const {
+    status: contextStatus,
+    hasFeedback,
+    feedbackIcon,
+  } = React.useContext(FormItemInputContext);
+  const mergedStatus = getMergedStatus(contextStatus, customStatus);
 
-class TextArea extends React.Component<TextAreaProps, TextAreaState> {
-  nextFrameActionId: number;
-  resizeObserver: ResizeObserver | null;
+  // ===================== Ref =====================
+  const innerRef = React.useRef<RcTextAreaRef>(null);
 
-  state = {
-    textareaStyles: {},
-  };
+  React.useImperativeHandle(ref, () => ({
+    resizableTextArea: innerRef.current?.resizableTextArea,
+    focus: (option?: InputFocusOptions) => {
+      triggerFocus(innerRef.current?.resizableTextArea?.textArea, option);
+    },
+    blur: () => innerRef.current?.blur(),
+  }));
 
-  private textAreaRef: HTMLTextAreaElement;
+  const prefixCls = getPrefixCls('input', customizePrefixCls);
 
-  componentDidMount() {
-    this.resizeTextarea();
-    this.updateResizeObserverHook();
+  // Allow clear
+  let mergedAllowClear: BaseInputProps['allowClear'];
+  if (typeof allowClear === 'object' && allowClear?.clearIcon) {
+    mergedAllowClear = allowClear;
+  } else if (allowClear) {
+    mergedAllowClear = { clearIcon: <CloseCircleFilled /> };
   }
 
-  componentDidUpdate(prevProps: TextAreaProps) {
-    // Re-render with the new content then recalculate the height as required.
-    if (prevProps.value !== this.props.value) {
-      this.resizeOnNextFrame();
-    }
-    this.updateResizeObserverHook();
-  }
+  // ===================== Style =====================
+  const rootCls = useCSSVarCls(prefixCls);
+  const [wrapCSSVar, hashId, cssVarCls] = useStyle(prefixCls, rootCls);
 
-  componentWillUnmount() {
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect();
-    }
-  }
-
-  resizeOnNextFrame = () => {
-    if (this.nextFrameActionId) {
-      clearNextFrameAction(this.nextFrameActionId);
-    }
-    this.nextFrameActionId = onNextFrame(this.resizeTextarea);
-  };
-
-  // We will update hooks if `autosize` prop change
-  updateResizeObserverHook() {
-    if (!this.resizeObserver && this.props.autosize) {
-      // Add resize observer
-      this.resizeObserver = new ResizeObserver(this.resizeOnNextFrame);
-      this.resizeObserver.observe(this.textAreaRef);
-    } else if (this.resizeObserver && !this.props.autosize) {
-      // Remove resize observer
-      this.resizeObserver.disconnect();
-      this.resizeObserver = null;
-    }
-  }
-
-  focus() {
-    this.textAreaRef.focus();
-  }
-
-  blur() {
-    this.textAreaRef.blur();
-  }
-
-  resizeTextarea = () => {
-    const { autosize } = this.props;
-    if (!autosize || !this.textAreaRef) {
-      return;
-    }
-    const minRows = autosize ? (autosize as AutoSizeType).minRows : null;
-    const maxRows = autosize ? (autosize as AutoSizeType).maxRows : null;
-    const textareaStyles = calculateNodeHeight(this.textAreaRef, false, minRows, maxRows);
-    this.setState({ textareaStyles });
-  };
-
-  handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (!('value' in this.props)) {
-      this.resizeTextarea();
-    }
-    const { onChange } = this.props;
-    if (onChange) {
-      onChange(e);
-    }
-  };
-
-  handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const { onPressEnter, onKeyDown } = this.props;
-    if (e.keyCode === 13 && onPressEnter) {
-      onPressEnter(e);
-    }
-    if (onKeyDown) {
-      onKeyDown(e);
-    }
-  };
-
-  saveTextAreaRef = (textArea: HTMLTextAreaElement) => {
-    this.textAreaRef = textArea;
-  };
-
-  renderTextArea = ({ getPrefixCls }: ConfigConsumerProps) => {
-    const { prefixCls: customizePrefixCls, className, disabled } = this.props;
-    const { ...props } = this.props;
-    const otherProps = omit(props, ['prefixCls', 'onPressEnter', 'autosize']);
-    const prefixCls = getPrefixCls('input', customizePrefixCls);
-    const cls = classNames(prefixCls, className, {
-      [`${prefixCls}-disabled`]: disabled,
-    });
-
-    const style = {
-      ...props.style,
-      ...this.state.textareaStyles,
-    };
-    // Fix https://github.com/ant-design/ant-design/issues/6776
-    // Make sure it could be reset when using form.getFieldDecorator
-    if ('value' in otherProps) {
-      otherProps.value = otherProps.value || '';
-    }
-    return (
-      <textarea
-        {...otherProps}
-        className={cls}
-        style={style}
-        onKeyDown={this.handleKeyDown}
-        onChange={this.handleTextareaChange}
-        ref={this.saveTextAreaRef}
-      />
-    );
-  };
-
-  render() {
-    return <ConfigConsumer>{this.renderTextArea}</ConfigConsumer>;
-  }
-}
-
-polyfill(TextArea);
+  return wrapCSSVar(
+    <RcTextArea
+      {...rest}
+      disabled={mergedDisabled}
+      allowClear={mergedAllowClear}
+      className={classNames(cssVarCls, rootCls, className, rootClassName)}
+      classes={{
+        affixWrapper: classNames(
+          `${prefixCls}-textarea-affix-wrapper`,
+          {
+            [`${prefixCls}-affix-wrapper-rtl`]: direction === 'rtl',
+            [`${prefixCls}-affix-wrapper-borderless`]: !bordered,
+            [`${prefixCls}-affix-wrapper-sm`]: mergedSize === 'small',
+            [`${prefixCls}-affix-wrapper-lg`]: mergedSize === 'large',
+            [`${prefixCls}-textarea-show-count`]: props.showCount || props.count?.show,
+          },
+          getStatusClassNames(`${prefixCls}-affix-wrapper`, mergedStatus),
+          hashId,
+        ),
+      }}
+      classNames={{
+        ...classes,
+        textarea: classNames(
+          {
+            [`${prefixCls}-borderless`]: !bordered,
+            [`${prefixCls}-sm`]: mergedSize === 'small',
+            [`${prefixCls}-lg`]: mergedSize === 'large',
+          },
+          getStatusClassNames(prefixCls, mergedStatus),
+          hashId,
+          classes?.textarea,
+        ),
+      }}
+      prefixCls={prefixCls}
+      suffix={hasFeedback && <span className={`${prefixCls}-textarea-suffix`}>{feedbackIcon}</span>}
+      ref={innerRef}
+    />,
+  );
+});
 
 export default TextArea;

@@ -1,296 +1,258 @@
-import * as React from 'react';
-import * as PropTypes from 'prop-types';
+import React, { forwardRef, useContext, useEffect, useRef } from 'react';
+import CloseCircleFilled from '@ant-design/icons/CloseCircleFilled';
 import classNames from 'classnames';
-import omit from 'omit.js';
-import { polyfill } from 'react-lifecycles-compat';
-import Group from './Group';
-import Search from './Search';
-import TextArea from './TextArea';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
-import Password from './Password';
-import Icon from '../icon';
-import { Omit, tuple } from '../_util/type';
+import type { InputRef, InputProps as RcInputProps } from 'rc-input';
+import RcInput from 'rc-input';
+import type { BaseInputProps } from 'rc-input/lib/interface';
+import { composeRef } from 'rc-util/lib/ref';
 
-function fixControlledValue<T>(value: T) {
-  if (typeof value === 'undefined' || value === null) {
-    return '';
-  }
-  return value;
+import type { InputStatus } from '../_util/statusUtils';
+import { getMergedStatus, getStatusClassNames } from '../_util/statusUtils';
+import { devUseWarning } from '../_util/warning';
+import { ConfigContext } from '../config-provider';
+import DisabledContext from '../config-provider/DisabledContext';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import { FormItemInputContext, NoFormStyle } from '../form/context';
+import { NoCompactStyle, useCompactItemContext } from '../space/Compact';
+import useRemovePasswordTimeout from './hooks/useRemovePasswordTimeout';
+import useStyle from './style';
+import { hasPrefixSuffix } from './utils';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+
+export interface InputFocusOptions extends FocusOptions {
+  cursor?: 'start' | 'end' | 'all';
 }
 
-const InputSizes = tuple('small', 'default', 'large');
+export type { InputRef };
+
+export function triggerFocus(
+  element?: HTMLInputElement | HTMLTextAreaElement,
+  option?: InputFocusOptions,
+) {
+  if (!element) {
+    return;
+  }
+
+  element.focus(option);
+
+  // Selection content
+  const { cursor } = option || {};
+  if (cursor) {
+    const len = element.value.length;
+
+    switch (cursor) {
+      case 'start':
+        element.setSelectionRange(0, 0);
+        break;
+      case 'end':
+        element.setSelectionRange(len, len);
+        break;
+      default:
+        element.setSelectionRange(0, len);
+        break;
+    }
+  }
+}
 
 export interface InputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size' | 'prefix'> {
-  prefixCls?: string;
-  size?: (typeof InputSizes)[number];
-  onPressEnter?: React.KeyboardEventHandler<HTMLInputElement>;
-  addonBefore?: React.ReactNode;
-  addonAfter?: React.ReactNode;
-  prefix?: React.ReactNode;
-  suffix?: React.ReactNode;
-  allowClear?: boolean;
+  extends Omit<
+    RcInputProps,
+    'wrapperClassName' | 'groupClassName' | 'inputClassName' | 'affixWrapperClassName' | 'classes'
+  > {
+  rootClassName?: string;
+  size?: SizeType;
+  disabled?: boolean;
+  status?: InputStatus;
+  bordered?: boolean;
+  [key: `data-${string}`]: string | undefined;
 }
 
-class Input extends React.Component<InputProps, any> {
-  static Group: typeof Group;
-  static Search: typeof Search;
-  static TextArea: typeof TextArea;
-  static Password: typeof Password;
+const Input = forwardRef<InputRef, InputProps>((props, ref) => {
+  const {
+    prefixCls: customizePrefixCls,
+    bordered = true,
+    status: customStatus,
+    size: customSize,
+    disabled: customDisabled,
+    onBlur,
+    onFocus,
+    suffix,
+    allowClear,
+    addonAfter,
+    addonBefore,
+    className,
+    style,
+    styles,
+    rootClassName,
+    onChange,
+    classNames: classes,
+    ...rest
+  } = props;
+  const { getPrefixCls, direction, input } = React.useContext(ConfigContext);
 
-  static defaultProps = {
-    type: 'text',
-    disabled: false,
-  };
+  const prefixCls = getPrefixCls('input', customizePrefixCls);
+  const inputRef = useRef<InputRef>(null);
 
-  static propTypes = {
-    type: PropTypes.string,
-    id: PropTypes.string,
-    size: PropTypes.oneOf(InputSizes),
-    maxLength: PropTypes.number,
-    disabled: PropTypes.bool,
-    value: PropTypes.any,
-    defaultValue: PropTypes.any,
-    className: PropTypes.string,
-    addonBefore: PropTypes.node,
-    addonAfter: PropTypes.node,
-    prefixCls: PropTypes.string,
-    onPressEnter: PropTypes.func,
-    onKeyDown: PropTypes.func,
-    onKeyUp: PropTypes.func,
-    onFocus: PropTypes.func,
-    onBlur: PropTypes.func,
-    prefix: PropTypes.node,
-    suffix: PropTypes.node,
-    allowClear: PropTypes.bool,
-  };
+  // Style
+  const rootCls = useCSSVarCls(prefixCls);
+  const [wrapCSSVar, hashId, cssVarCls] = useStyle(prefixCls, rootCls);
 
-  static getDerivedStateFromProps(nextProps: InputProps) {
-    if ('value' in nextProps) {
-      return {
-        value: nextProps.value,
-      };
-    }
-    return null;
-  }
+  // ===================== Compact Item =====================
+  const { compactSize, compactItemClassnames } = useCompactItemContext(prefixCls, direction);
 
-  input: HTMLInputElement;
+  // ===================== Size =====================
+  const mergedSize = useSize((ctx) => customSize ?? compactSize ?? ctx);
 
-  constructor(props: InputProps) {
-    super(props);
-    const value = typeof props.value === 'undefined' ? props.defaultValue : props.value;
-    this.state = {
-      value,
-    };
-  }
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+  const mergedDisabled = customDisabled ?? disabled;
 
-  handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const { onPressEnter, onKeyDown } = this.props;
-    if (e.keyCode === 13 && onPressEnter) {
-      onPressEnter(e);
-    }
-    if (onKeyDown) {
-      onKeyDown(e);
-    }
-  };
+  // ===================== Status =====================
+  const { status: contextStatus, hasFeedback, feedbackIcon } = useContext(FormItemInputContext);
+  const mergedStatus = getMergedStatus(contextStatus, customStatus);
 
-  focus() {
-    this.input.focus();
-  }
+  // ===================== Focus warning =====================
+  const inputHasPrefixSuffix = hasPrefixSuffix(props) || !!hasFeedback;
+  const prevHasPrefixSuffix = useRef<boolean>(inputHasPrefixSuffix);
 
-  blur() {
-    this.input.blur();
-  }
+  /* eslint-disable react-hooks/rules-of-hooks */
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Input');
 
-  select() {
-    this.input.select();
-  }
-
-  getInputClassName(prefixCls: string) {
-    const { size, disabled } = this.props;
-    return classNames(prefixCls, {
-      [`${prefixCls}-sm`]: size === 'small',
-      [`${prefixCls}-lg`]: size === 'large',
-      [`${prefixCls}-disabled`]: disabled,
-    });
-  }
-
-  saveInput = (node: HTMLInputElement) => {
-    this.input = node;
-  };
-
-  setValue(
-    value: string,
-    e: React.ChangeEvent<HTMLInputElement> | React.MouseEvent<HTMLElement, MouseEvent>,
-  ) {
-    if (!('value' in this.props)) {
-      this.setState({ value });
-    }
-    const { onChange } = this.props;
-    if (onChange) {
-      let event = e;
-      if (e.type === 'click') {
-        // click clear icon
-        event = Object.create(e);
-        event.target = this.input;
-        event.currentTarget = this.input;
-        const originalInputValue = this.input.value;
-        // change input value cause e.target.value should be '' when clear input
-        this.input.value = '';
-        onChange(event as React.ChangeEvent<HTMLInputElement>);
-        // reset input value
-        this.input.value = originalInputValue;
-        return;
+    useEffect(() => {
+      if (inputHasPrefixSuffix && !prevHasPrefixSuffix.current) {
+        warning(
+          document.activeElement === inputRef.current?.input,
+          'usage',
+          `When Input is focused, dynamic add or remove prefix / suffix will make it lose focus caused by dom structure change. Read more: https://ant.design/components/input/#FAQ`,
+        );
       }
-      onChange(event as React.ChangeEvent<HTMLInputElement>);
-    }
+      prevHasPrefixSuffix.current = inputHasPrefixSuffix;
+    }, [inputHasPrefixSuffix]);
   }
+  /* eslint-enable */
 
-  handleReset = (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
-    this.setValue('', e);
+  // ===================== Remove Password value =====================
+  const removePasswordTimeout = useRemovePasswordTimeout(inputRef, true);
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    removePasswordTimeout();
+    onBlur?.(e);
   };
 
-  handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    this.setValue(e.target.value, e);
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    removePasswordTimeout();
+    onFocus?.(e);
   };
 
-  renderClearIcon(prefixCls: string) {
-    const { allowClear } = this.props;
-    const { value } = this.state;
-    if (!allowClear || value === undefined || value === '') {
-      return null;
-    }
-    return (
-      <Icon
-        type="close-circle"
-        theme="filled"
-        onClick={this.handleReset}
-        className={`${prefixCls}-clear-icon`}
-        role="button"
-      />
-    );
-  }
-
-  renderSuffix(prefixCls: string) {
-    const { suffix, allowClear } = this.props;
-    if (suffix || allowClear) {
-      return (
-        <span className={`${prefixCls}-suffix`}>
-          {this.renderClearIcon(prefixCls)}
-          {suffix}
-        </span>
-      );
-    }
-    return null;
-  }
-
-  renderLabeledInput(prefixCls: string, children: React.ReactElement<any>) {
-    const props = this.props;
-    // Not wrap when there is not addons
-    if (!props.addonBefore && !props.addonAfter) {
-      return children;
-    }
-
-    const wrapperClassName = `${prefixCls}-group`;
-    const addonClassName = `${wrapperClassName}-addon`;
-    const addonBefore = props.addonBefore ? (
-      <span className={addonClassName}>{props.addonBefore}</span>
-    ) : null;
-    const addonAfter = props.addonAfter ? (
-      <span className={addonClassName}>{props.addonAfter}</span>
-    ) : null;
-
-    const className = classNames(`${prefixCls}-wrapper`, {
-      [wrapperClassName]: addonBefore || addonAfter,
-    });
-
-    const groupClassName = classNames(`${prefixCls}-group-wrapper`, {
-      [`${prefixCls}-group-wrapper-sm`]: props.size === 'small',
-      [`${prefixCls}-group-wrapper-lg`]: props.size === 'large',
-    });
-
-    // Need another wrapper for changing display:table to display:inline-block
-    // and put style prop in wrapper
-    return (
-      <span className={groupClassName} style={props.style}>
-        <span className={className}>
-          {addonBefore}
-          {React.cloneElement(children, { style: null })}
-          {addonAfter}
-        </span>
-      </span>
-    );
-  }
-
-  renderLabeledIcon(prefixCls: string, children: React.ReactElement<any>) {
-    const { props } = this;
-    const suffix = this.renderSuffix(prefixCls);
-
-    if (!('prefix' in props) && !suffix) {
-      return children;
-    }
-
-    const prefix = props.prefix ? (
-      <span className={`${prefixCls}-prefix`}>{props.prefix}</span>
-    ) : null;
-
-    const affixWrapperCls = classNames(props.className, `${prefixCls}-affix-wrapper`, {
-      [`${prefixCls}-affix-wrapper-sm`]: props.size === 'small',
-      [`${prefixCls}-affix-wrapper-lg`]: props.size === 'large',
-    });
-    return (
-      <span className={affixWrapperCls} style={props.style}>
-        {prefix}
-        {React.cloneElement(children, {
-          style: null,
-          className: this.getInputClassName(prefixCls),
-        })}
-        {suffix}
-      </span>
-    );
-  }
-
-  renderInput(prefixCls: string) {
-    const { className } = this.props;
-    const { value } = this.state;
-    // Fix https://fb.me/react-unknown-prop
-    const otherProps = omit(this.props, [
-      'prefixCls',
-      'onPressEnter',
-      'addonBefore',
-      'addonAfter',
-      'prefix',
-      'suffix',
-      'allowClear',
-      // Input elements must be either controlled or uncontrolled,
-      // specify either the value prop, or the defaultValue prop, but not both.
-      'defaultValue',
-    ]);
-
-    return this.renderLabeledIcon(
-      prefixCls,
-      <input
-        {...otherProps}
-        value={fixControlledValue(value)}
-        onChange={this.handleChange}
-        className={classNames(this.getInputClassName(prefixCls), className)}
-        onKeyDown={this.handleKeyDown}
-        ref={this.saveInput}
-      />,
-    );
-  }
-
-  renderComponent = ({ getPrefixCls }: ConfigConsumerProps) => {
-    const { prefixCls: customizePrefixCls } = this.props;
-    const prefixCls = getPrefixCls('input', customizePrefixCls);
-    return this.renderLabeledInput(prefixCls, this.renderInput(prefixCls));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    removePasswordTimeout();
+    onChange?.(e);
   };
 
-  render() {
-    return <ConfigConsumer>{this.renderComponent}</ConfigConsumer>;
-  }
-}
+  const suffixNode = (hasFeedback || suffix) && (
+    <>
+      {suffix}
+      {hasFeedback && feedbackIcon}
+    </>
+  );
 
-polyfill(Input);
+  // Allow clear
+  let mergedAllowClear: BaseInputProps['allowClear'];
+  if (typeof allowClear === 'object' && allowClear?.clearIcon) {
+    mergedAllowClear = allowClear;
+  } else if (allowClear) {
+    mergedAllowClear = { clearIcon: <CloseCircleFilled /> };
+  }
+
+  return wrapCSSVar(
+    <RcInput
+      ref={composeRef(ref, inputRef)}
+      prefixCls={prefixCls}
+      autoComplete={input?.autoComplete}
+      {...rest}
+      disabled={mergedDisabled}
+      onBlur={handleBlur}
+      onFocus={handleFocus}
+      style={{ ...input?.style, ...style }}
+      styles={{ ...input?.styles, ...styles }}
+      suffix={suffixNode}
+      allowClear={mergedAllowClear}
+      className={classNames(
+        className,
+        rootClassName,
+        cssVarCls,
+        rootCls,
+        hashId,
+        compactItemClassnames,
+        input?.className,
+      )}
+      onChange={handleChange}
+      addonAfter={
+        addonAfter && (
+          <NoCompactStyle>
+            <NoFormStyle override status>
+              {addonAfter}
+            </NoFormStyle>
+          </NoCompactStyle>
+        )
+      }
+      addonBefore={
+        addonBefore && (
+          <NoCompactStyle>
+            <NoFormStyle override status>
+              {addonBefore}
+            </NoFormStyle>
+          </NoCompactStyle>
+        )
+      }
+      classNames={{
+        ...classes,
+        ...input?.classNames,
+        input: classNames(
+          {
+            [`${prefixCls}-sm`]: mergedSize === 'small',
+            [`${prefixCls}-lg`]: mergedSize === 'large',
+            [`${prefixCls}-rtl`]: direction === 'rtl',
+            [`${prefixCls}-borderless`]: !bordered,
+          },
+          !inputHasPrefixSuffix && getStatusClassNames(prefixCls, mergedStatus),
+          classes?.input,
+          input?.classNames?.input,
+          hashId,
+        ),
+      }}
+      classes={{
+        affixWrapper: classNames(
+          {
+            [`${prefixCls}-affix-wrapper-sm`]: mergedSize === 'small',
+            [`${prefixCls}-affix-wrapper-lg`]: mergedSize === 'large',
+            [`${prefixCls}-affix-wrapper-rtl`]: direction === 'rtl',
+            [`${prefixCls}-affix-wrapper-borderless`]: !bordered,
+          },
+          getStatusClassNames(`${prefixCls}-affix-wrapper`, mergedStatus, hasFeedback),
+          hashId,
+        ),
+        wrapper: classNames(
+          {
+            [`${prefixCls}-group-rtl`]: direction === 'rtl',
+          },
+          hashId,
+        ),
+        group: classNames(
+          {
+            [`${prefixCls}-group-wrapper-sm`]: mergedSize === 'small',
+            [`${prefixCls}-group-wrapper-lg`]: mergedSize === 'large',
+            [`${prefixCls}-group-wrapper-rtl`]: direction === 'rtl',
+            [`${prefixCls}-group-wrapper-disabled`]: mergedDisabled,
+          },
+          getStatusClassNames(`${prefixCls}-group-wrapper`, mergedStatus, hasFeedback),
+          hashId,
+        ),
+      }}
+    />,
+  );
+});
 
 export default Input;

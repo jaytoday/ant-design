@@ -1,233 +1,163 @@
 import * as React from 'react';
-import Dialog from 'rc-dialog';
-import * as PropTypes from 'prop-types';
+import CloseOutlined from '@ant-design/icons/CloseOutlined';
 import classNames from 'classnames';
-import addEventListener from 'rc-util/lib/Dom/addEventListener';
-import { getConfirmLocale } from './locale';
-import Icon from '../icon';
-import Button from '../button';
-import { ButtonType, NativeButtonProps } from '../button/button';
-import LocaleReceiver from '../locale-provider/LocaleReceiver';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
+import Dialog from 'rc-dialog';
 
-let mousePosition: { x: number; y: number } | null;
-let mousePositionEventBinded: boolean;
-export const destroyFns: Array<() => void> = [];
+import useClosable from '../_util/hooks/useClosable';
+import { getTransitionName } from '../_util/motion';
+import { canUseDocElement } from '../_util/styleChecker';
+import { devUseWarning } from '../_util/warning';
+import zIndexContext from '../_util/zindexContext';
+import { ConfigContext } from '../config-provider';
+import { NoFormStyle } from '../form/context';
+import { NoCompactStyle } from '../space/Compact';
+import { usePanelRef } from '../watermark/context';
+import type { ModalProps, MousePosition } from './interface';
+import { Footer, renderCloseIcon } from './shared';
+import useStyle from './style';
+import { useZIndex } from '../_util/hooks/useZIndex';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
 
-export interface ModalProps {
-  /** 对话框是否可见*/
-  visible?: boolean;
-  /** 确定按钮 loading*/
-  confirmLoading?: boolean;
-  /** 标题*/
-  title?: React.ReactNode | string;
-  /** 是否显示右上角的关闭按钮*/
-  closable?: boolean;
-  /** 点击确定回调*/
-  onOk?: (e: React.MouseEvent<any>) => void;
-  /** 点击模态框右上角叉、取消按钮、Props.maskClosable 值为 true 时的遮罩层或键盘按下 Esc 时的回调*/
-  onCancel?: (e: React.MouseEvent<any>) => void;
-  afterClose?: () => void;
-  /** 垂直居中 */
-  centered?: boolean;
-  /** 宽度*/
-  width?: string | number;
-  /** 底部内容*/
-  footer?: React.ReactNode;
-  /** 确认按钮文字*/
-  okText?: string;
-  /** 确认按钮类型*/
-  okType?: ButtonType;
-  /** 取消按钮文字*/
-  cancelText?: string;
-  /** 点击蒙层是否允许关闭*/
-  maskClosable?: boolean;
-  okButtonProps?: NativeButtonProps;
-  cancelButtonProps?: NativeButtonProps;
-  destroyOnClose?: boolean;
-  style?: React.CSSProperties;
-  wrapClassName?: string;
-  maskTransitionName?: string;
-  transitionName?: string;
-  className?: string;
-  getContainer?: (instance: React.ReactInstance) => HTMLElement;
-  zIndex?: number;
-  bodyStyle?: React.CSSProperties;
-  maskStyle?: React.CSSProperties;
-  mask?: boolean;
-  keyboard?: boolean;
-  wrapProps?: any;
-  prefixCls?: string;
-}
+let mousePosition: MousePosition;
 
-export interface ModalFuncProps {
-  prefixCls?: string;
-  className?: string;
-  visible?: boolean;
-  title?: React.ReactNode;
-  content?: React.ReactNode;
-  onOk?: (...args: any[]) => any | PromiseLike<any>;
-  onCancel?: (...args: any[]) => any | PromiseLike<any>;
-  okButtonProps?: NativeButtonProps;
-  cancelButtonProps?: NativeButtonProps;
-  centered?: boolean;
-  width?: string | number;
-  iconClassName?: string;
-  okText?: string;
-  okType?: ButtonType;
-  cancelText?: string;
-  icon?: React.ReactNode;
-  /* Deperated */
-  iconType?: string;
-  maskClosable?: boolean;
-  zIndex?: number;
-  okCancel?: boolean;
-  style?: React.CSSProperties;
-  maskStyle?: React.CSSProperties;
-  type?: string;
-  keyboard?: boolean;
-  getContainer?: (instance: React.ReactInstance) => HTMLElement;
-  autoFocusButton?: null | 'ok' | 'cancel';
-}
-
-export type ModalFunc = (
-  props: ModalFuncProps,
-) => {
-  destroy: () => void;
-  update: (newConfig: ModalFuncProps) => void;
+// ref: https://github.com/ant-design/ant-design/issues/15795
+const getClickPosition = (e: MouseEvent) => {
+  mousePosition = {
+    x: e.pageX,
+    y: e.pageY,
+  };
+  // 100ms 内发生过点击事件，则从点击位置动画展示
+  // 否则直接 zoom 展示
+  // 这样可以兼容非点击方式展开
+  setTimeout(() => {
+    mousePosition = null;
+  }, 100);
 };
 
-export interface ModalLocale {
-  okText: string;
-  cancelText: string;
-  justOkText: string;
+// 只有点击事件支持从鼠标位置动画展开
+if (canUseDocElement()) {
+  document.documentElement.addEventListener('click', getClickPosition, true);
 }
 
-export default class Modal extends React.Component<ModalProps, {}> {
-  static info: ModalFunc;
-  static success: ModalFunc;
-  static error: ModalFunc;
-  static warn: ModalFunc;
-  static warning: ModalFunc;
-  static confirm: ModalFunc;
-  static destroyAll: () => void;
+const Modal: React.FC<ModalProps> = (props) => {
+  const {
+    getPopupContainer: getContextPopupContainer,
+    getPrefixCls,
+    direction,
+    modal,
+  } = React.useContext(ConfigContext);
 
-  static defaultProps = {
-    width: 520,
-    transitionName: 'zoom',
-    maskTransitionName: 'fade',
-    confirmLoading: false,
-    visible: false,
-    okType: 'primary' as ButtonType,
-    okButtonDisabled: false,
-    cancelButtonDisabled: false,
+  const handleCancel = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const { onCancel } = props;
+    onCancel?.(e);
   };
 
-  static propTypes = {
-    prefixCls: PropTypes.string,
-    onOk: PropTypes.func,
-    onCancel: PropTypes.func,
-    okText: PropTypes.string,
-    cancelText: PropTypes.string,
-    centered: PropTypes.bool,
-    width: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-    confirmLoading: PropTypes.bool,
-    visible: PropTypes.bool,
-    align: PropTypes.object,
-    footer: PropTypes.node,
-    title: PropTypes.node,
-    closable: PropTypes.bool,
+  const handleOk = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const { onOk } = props;
+    onOk?.(e);
   };
 
-  handleCancel = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const onCancel = this.props.onCancel;
-    if (onCancel) {
-      onCancel(e);
-    }
-  };
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Modal');
 
-  handleOk = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const onOk = this.props.onOk;
-    if (onOk) {
-      onOk(e);
-    }
-  };
-
-  componentDidMount() {
-    if (mousePositionEventBinded) {
-      return;
-    }
-    // 只有点击事件支持从鼠标位置动画展开
-    addEventListener(document.documentElement, 'click', (e: MouseEvent) => {
-      mousePosition = {
-        x: e.pageX,
-        y: e.pageY,
-      };
-      // 100ms 内发生过点击事件，则从点击位置动画展示
-      // 否则直接 zoom 展示
-      // 这样可以兼容非点击方式展开
-      setTimeout(() => (mousePosition = null), 100);
+    [
+      ['visible', 'open'],
+      ['bodyStyle', 'styles.body'],
+      ['maskStyle', 'styles.mask'],
+    ].forEach(([deprecatedName, newName]) => {
+      warning.deprecated(!(deprecatedName in props), deprecatedName, newName);
     });
-    mousePositionEventBinded = true;
   }
 
-  renderFooter = (locale: ModalLocale) => {
-    const { okText, okType, cancelText, confirmLoading } = this.props;
-    return (
-      <div>
-        <Button onClick={this.handleCancel} {...this.props.cancelButtonProps}>
-          {cancelText || locale.cancelText}
-        </Button>
-        <Button
-          type={okType}
-          loading={confirmLoading}
-          onClick={this.handleOk}
-          {...this.props.okButtonProps}
-        >
-          {okText || locale.okText}
-        </Button>
-      </div>
-    );
-  };
+  const {
+    prefixCls: customizePrefixCls,
+    className,
+    rootClassName,
+    open,
+    wrapClassName,
+    centered,
+    getContainer,
+    closeIcon,
+    closable,
+    focusTriggerAfterClose = true,
+    style,
+    // Deprecated
+    visible,
 
-  renderModal = ({ getPrefixCls }: ConfigConsumerProps) => {
-    const {
-      prefixCls: customizePrefixCls,
-      footer,
-      visible,
-      wrapClassName,
-      centered,
-      ...restProps
-    } = this.props;
+    width = 520,
+    footer,
+    classNames: modalClassNames,
+    styles: modalStyles,
+    ...restProps
+  } = props;
 
-    const prefixCls = getPrefixCls('modal', customizePrefixCls);
-    const defaultFooter = (
-      <LocaleReceiver componentName="Modal" defaultLocale={getConfirmLocale()}>
-        {this.renderFooter}
-      </LocaleReceiver>
-    );
+  const prefixCls = getPrefixCls('modal', customizePrefixCls);
+  const rootPrefixCls = getPrefixCls();
+  // Style
+  const rootCls = useCSSVarCls(prefixCls);
+  const [wrapCSSVar, hashId, cssVarCls] = useStyle(prefixCls, rootCls);
 
-    const closeIcon = (
-      <span className={`${prefixCls}-close-x`}>
-        <Icon className={`${prefixCls}-close-icon`} type={'close'} />
-      </span>
-    );
+  const wrapClassNameExtended = classNames(wrapClassName, {
+    [`${prefixCls}-centered`]: !!centered,
+    [`${prefixCls}-wrap-rtl`]: direction === 'rtl',
+  });
 
-    return (
-      <Dialog
-        {...restProps}
-        prefixCls={prefixCls}
-        wrapClassName={classNames({ [`${prefixCls}-centered`]: !!centered }, wrapClassName)}
-        footer={footer === undefined ? defaultFooter : footer}
-        visible={visible}
-        mousePosition={mousePosition}
-        onClose={this.handleCancel}
-        closeIcon={closeIcon}
-      />
-    );
-  };
+  const dialogFooter = footer !== null && (
+    <Footer {...props} onOk={handleOk} onCancel={handleCancel} />
+  );
+  const [mergedClosable, mergedCloseIcon] = useClosable(
+    closable,
+    closeIcon,
+    (icon) => renderCloseIcon(prefixCls, icon),
+    <CloseOutlined className={`${prefixCls}-close-icon`} />,
+    true,
+  );
 
-  render() {
-    return <ConfigConsumer>{this.renderModal}</ConfigConsumer>;
-  }
-}
+  // ============================ Refs ============================
+  // Select `ant-modal-content` by `panelRef`
+  const panelRef = usePanelRef(`.${prefixCls}-content`);
+
+  // ============================ zIndex ============================
+  const [zIndex, contextZIndex] = useZIndex('Modal', restProps.zIndex);
+
+  // =========================== Render ===========================
+  return wrapCSSVar(
+    <NoCompactStyle>
+      <NoFormStyle status override>
+        <zIndexContext.Provider value={contextZIndex}>
+          <Dialog
+            width={width}
+            {...restProps}
+            zIndex={zIndex}
+            getContainer={getContainer === undefined ? getContextPopupContainer : getContainer}
+            prefixCls={prefixCls}
+            rootClassName={classNames(hashId, rootClassName, cssVarCls, rootCls)}
+            footer={dialogFooter}
+            visible={open ?? visible}
+            mousePosition={restProps.mousePosition ?? mousePosition}
+            onClose={handleCancel}
+            closable={mergedClosable}
+            closeIcon={mergedCloseIcon}
+            focusTriggerAfterClose={focusTriggerAfterClose}
+            transitionName={getTransitionName(rootPrefixCls, 'zoom', props.transitionName)}
+            maskTransitionName={getTransitionName(rootPrefixCls, 'fade', props.maskTransitionName)}
+            className={classNames(hashId, className, modal?.className)}
+            style={{ ...modal?.style, ...style }}
+            classNames={{
+              wrapper: wrapClassNameExtended,
+              ...modal?.classNames,
+              ...modalClassNames,
+            }}
+            styles={{
+              ...modal?.styles,
+              ...modalStyles,
+            }}
+            panelRef={panelRef}
+          />
+        </zIndexContext.Provider>
+      </NoFormStyle>
+    </NoCompactStyle>,
+  );
+};
+
+export default Modal;

@@ -1,112 +1,221 @@
 ---
-order: 9
+group:
+  title: Other
+order: 2
 title: FAQ
 ---
 
-Here are the frequently asked questions about Ant Design and antd that you should look up before you ask in community or create new issue. We also maintain a [FAQ issues label](https://github.com/ant-design/ant-design/issues?q=label%3AFAQ+is%3Aclosed) for common github issues.
+Here are the frequently asked questions about Ant Design and antd that you should look up before you ask in the community or create a new issue. We also maintain a [FAQ issues label](http://u.ant.design/faq) for common github issues.
 
 ---
 
-### Are you going to provide Vue(etc...) edition?
+## Is there a difference between `undefined` and `null` in the controlled components of `antd`?
 
-No, but [the LICENSE of ant-design](https://github.com/ant-design/ant-design/blob/master/LICENSE) is MIT. So, you can try to implement it with ant-design's [style](https://github.com/ant-design/ant-design/tree/master/style), like: [ant-design-vue](https://github.com/vueComponent/ant-design-vue) [vue-beauty](https://github.com/FE-Driver/vue-beauty) or [antue](https://github.com/zzuu666/antue).
+**Yes. antd will treat `undefined` as uncontrolled but `null` as controlled component which means empty value of it.**
 
-### Are you going to provide Sass/Stylus(etc...) style file?
+As input element, React treats both `undefined` and `null` as uncontrolled. When the `value` is converted from a valid value to `undefined` or `null`, the component is no longer controlled, which causes some unexpected cases.
 
-No, actually, you can convert Less to Sass/Stylus(etc...) with tools (which you can Google).
+But in antd, `undefined` is treated as uncontrolled, and `null` is used as an explicit empty value of controlled components. To deal with some cases (e.g. `allowClear`) like clearing the `value` when the `value` is non-primitive. If you need a component controlled with the `value` valid, just set the `value` as `null`.
 
-### `Select Dropdown DatePicker TimePicker Popover Popconfirm` disappear when I click another popup component inside it, How to resolve it?
+Note: For `options` in `Select-like` components, it is **strongly recommended not** to use `undefined` and `null` as `value` in `option`. Please use `string | number` as a valid `value` in `option`.
 
-Use `<Select getPopupContainer={trigger => trigger.parentNode}>` to render component inside Popover. (Or other getXxxxContainer props)
+## Can I use internal API which is not documented on the site?
+
+NOT RECOMMENDED. Internal API is not guaranteed to be compatible with future versions. It may be removed or changed in some versions. If you really need to use it, you should make sure these APIs are still valid when upgrading to a new version or just lock version for usage.
+
+## Why API request should be strict discussion?
+
+We are cautious when adding APIs because some APIs may not be abstract enough to become historical debt. For example, when there is a need to change the way of interaction, these poor abstractions may cause breaking changes. To avoid such problems, we recommend that new features be implemented through HOCs first.
+
+## `Select Dropdown DatePicker TimePicker Popover Popconfirm` disappears when I click another popup component inside it. How do I resolve this?
+
+This is an old bug that has been fixed since `v3.11.x`. If you're using an older version, you can use `<Select getPopupContainer={trigger => trigger.parentElement}>` to render a component inside Popover. (Or other `getXxxxContainer` props)
 
 https://ant.design/components/select/#Select-props
 
-related issue: [#3487](https://github.com/ant-design/ant-design/issues/3487) [#3438](https://github.com/ant-design/ant-design/issues/3438)
+Related issue: [#3487](https://github.com/ant-design/ant-design/issues/3487) [#3438](https://github.com/ant-design/ant-design/issues/3438)
 
-### `Select Dropdown DatePicker TimePicker Popover Popconfirm` scroll with the page?
+## How do I prevent `Select Dropdown DatePicker TimePicker Popover Popconfirm` scrolling with the page?
 
-Use `<Select getPopupContainer={trigger => trigger.parentNode}>` to render component inside the scroll area. (Or other getXxxxContainer props).
+Use `<Select getPopupContainer={trigger => trigger.parentElement}>` ([API reference](/components/select/#select-props)) to render a component inside the scroll area. If you need to config this globally in your application, try `<ConfigProvider getPopupContainer={trigger => trigger.parentElement}>` ([API reference](/components/config-provider/#api))
 
-https://ant.design/components/select/#Select-props
+And make sure that parentElement is `position: relative` or `position: absolute`.
 
-related issue: [#3487](https://github.com/ant-design/ant-design/issues/3487) [#3438](https://github.com/ant-design/ant-design/issues/3438)
+Related issue: [#3487](https://github.com/ant-design/ant-design/issues/3487) [#3438](https://github.com/ant-design/ant-design/issues/3438)
 
-### How to modify the default theme of Ant Design?
+## How do I modify the default theme of Ant Design?
 
-See: https://ant.design/docs/react/customize-theme .
+See: [customize-theme](/docs/react/customize-theme).
 
-### Would you supply other themes?
+## How do I modify `Menu`/`Button`(etc.)'s style?
 
-No, we follow Ant Design specification. https://github.com/ant-design/ant-design/issues/1241
+While you can override a component's style, we don't recommend doing so. antd is not only a set of React components, but also a design specification as well.
 
-### How to modify `Menu`/`Button`(etc...)'s style?
+## How to avoid breaking change when update version?
 
-You can override its style, but we don't recommend doing so. antd is not only a set of React components but also a design specification.
+antd will avoid breaking change in minor & patch version. You can safe do follow things:
 
-### I just want to use `Menu`/`Button`(etc...), but it seems that I have to import the whole antd and its style.
+- Official demo usage
+- FAQ suggestion. Including codesandbox sample, marked as FAQ issue
 
-Try [babel-plugin-import](https://github.com/ant-design/babel-plugin-import), or import what you need in this way:
+And which you should avoid to do:
 
-```jsx
-import Menu from 'antd/lib/menu';
-import 'antd/lib/menu/style/css';
-```
+- Bug as feature. It will break in any other case (e.g. Use div as Tabs children)
+- Use magic code to realize requirement but which can be realized with normal API
 
-or (ES6 way with tree shaking):
+## How to use other data-time lib like Moment.js?
 
-```jsx
-import { Menu, Breadcrumb, Icon } from 'antd';
-```
+Please refer to [Use custom date library](/docs/react/use-custom-date-library).
 
-### How to optimize momentjs bundle size with webpack?
+## It doesn't work when I change `defaultValue` dynamically.
 
-See: https://github.com/jmblog/how-to-optimize-momentjs-with-webpack
+The `defaultXxxx` (e.g. `defaultValue`) of `Input`/`Select`(etc...) only works on the first render. It is a specification of React. Please read [React's documentation](https://facebook.github.io/react/docs/forms.html#controlled-components).
 
-### It doesn't work when I change `defaultValue` dynamically.
+## Why does modifying props in mutable way not trigger a component update?
 
-The `defaultXxxx` (like `defaultValue`) of `Input`/`Select`(etc...) only works in first render. It is a specification of React; please read [React's documentation](https://facebook.github.io/react/docs/forms.html#controlled-components).
+antd use shallow compare of props to optimize performance. You should always pass the new object when updating the state. Please ref [React's document](https://reactjs.org/docs/thinking-in-react.html)
 
-### I set the `value` of `Input`/`Select`(etc...), and then, it cannot be changed by user's action.
+## After I set the `value` of an `Input`/`Select`(etc.) component, the value cannot be changed by user's action.
 
-Try `defaultValue` or `onChange` to change `value`, and please read [React's documentation](https://facebook.github.io/react/docs/forms.html#controlled-components).
+Try `onChange` to change `value`, and please read [React's documentation](https://reactjs.org/docs/forms.html#controlled-components).
 
-### antd override my global styles!
+## Components are not vertically aligned when placed in single row.
 
-Yes, antd is designed to develop a complete background application, we override some global styles for styling convenience, and it can't be removed now. More info trace https://github.com/ant-design/ant-design/issues/4331 .
+Try [Space](https://ant.design/components/space/) component to make them aligned.
 
-Or, follow the instructions in [How to avoid modifying global styles?](docs/react/customize-theme#How-to-avoid-modifying-global-styles-?)
+## antd overrides my global styles
 
-### I cannot install `antd` and `antd`'s dependencies(etc...). FYI, I live in China mainland.
+Yes, antd is designed to help you develop a complete background application. To do so, we override some global styles for styling convenience, and currently these cannot be removed or changed. More info at https://github.com/ant-design/ant-design/issues/4331 .
 
-Long live the Girl Friend Wall! And try [cnpm](http://npm.taobao.org/).
+Alternatively, follow the instructions in [How to avoid modifying global styles?](/docs/react/customize-theme#how-to-avoid-modifying-global-styles)
 
-### I set `dependencies.antd` as git repository in package.json, but it doesn't work.
+## I cannot install `antd` and `antd`'s dependencies in mainland China.
 
-Yes, please install `antd` with npm.
+To potentially solve this, try [npm mirror china](https://npmmirror.com) and [cnpm](https://github.com/cnpm/cnpm).
 
-### `message` and `notification` is lower case, but other components are capitalized. Typo?
+## I set `dependencies.antd` as the git repository in `package.json`, but it doesn't work.
 
-No, as `message` is just a function, not a React Component.
+Please install `antd` with either npm or yarn.
 
-### `antd` doesn't work well in mobile.
+## `message` and `notification` is lower case, but other components are capitalized. Is this a typo?
 
-Please check [And Design Mobile](http://mobile.ant.design) for details. `antd` has not been optimized to do so. You may try [react-component](https://github.com/react-component/), those repositories which start with 'm-' 'rn-' are designed for mobile.
+No, `message` is just a function, not a React Component, thus it is not a typo that it is in lower case.
 
-### Does `antd` supply standalone files like 'react' do?
+## `antd` doesn't work well in mobile.
 
-Yep, you can [import `antd` with script tag](https://ant.design/docs/react/install?locale=en-US#Import-in-Browser). But we recommend using `npm` to import `antd`, it is simple and easy to maintain.
+Please check [Ant Design Mobile](http://mobile.ant.design) as a possible solution, as `antd` has not been optimized to work well on mobile. You can also try the [react-component](https://github.com/react-component/) repositories which start with 'm-' 'rn-', which are also designed for mobile.
 
-### I can't visit `icon` in my network environment.
+## Does `antd` supply standalone files like 'React'?
 
-You should deploy the iconfont files to your network by following this [example](https://github.com/ant-design/antd-init/tree/7c1a33cadb98f2fd8688fe527dd7f98215b9bced/examples/local-iconfont). [#1070](https://github.com/ant-design/ant-design/issues/1070)
+Yes, you can [import `antd` with script tag](https://ant.design/docs/react/introduce#import-in-browser), but we recommend using `npm` to import `antd`, as it is simple and easy to maintain.
 
-After 3.9.x [we are using svg icon](/components/icon#svg-icons), so you don't need to deploy iconfont locally anymore!
-
-### How to extend antd's components?
+## How do I extend antd's components?
 
 If you need some features which should not be included in antd, try to extend antd's component with [HOC](https://gist.github.com/sebmarkbage/ef0bf1f338a7182b6775). [more](https://medium.com/@dan_abramov/mixins-are-dead-long-live-higher-order-components-94a0d2f9e750#.eeu8q01s1)
 
-### How to spell Ant Design correctly?
+## How to get the definition which is not export?
+
+antd will export mainly definitions, but not export internal definitions which may be rename or changed. So we recommend you to use Typescript's native ability to get the definition if needed:
+
+```tsx
+import { Table } from 'antd';
+
+type Props<T extends (...args: any) => any> = Parameters<T>[0];
+
+type TableProps = Props<typeof Table<{ key: string; name: string; age: number }>>;
+type DataSource = TableProps['dataSource'];
+```
+
+## Date-related components locale is not working?
+
+Please check whether you have imported dayjs locale correctly.
+
+```jsx
+import 'dayjs/locale/zh-cn';
+
+dayjs.locale('zh-cn');
+```
+
+Please check whether there are two versions of dayjs installed.
+
+```jsx
+npm ls dayjs
+```
+
+If you are using a mismatched version of dayjs with [antd's dayjs](https://github.com/ant-design/ant-design/blob/7dfc80504a36cf8952cd732a1d0c137a16d56fd4/package.json#L125) in your project. That would be a problem cause locale not working.
+
+## How do I fix dynamic styles while using a Content Security Policy (CSP)?
+
+You can configure `nonce` by [ConfigProvider](/components/config-provider/#content-security-policy).
+
+## When I set `mode` to `DatePicker`/`RangePicker`, why can I not select a year or month anymore?
+
+In a real world development, you may need a `YearPicker`, `MonthRangePicker` or `WeekRangePicker`. You are trying to add `mode` to `DatePicker`/`RangePicker` expected to implement those pickers. However, the `DatePicker`/`RangePicker` cannot be selected and the panels won't close now.
+
+- Reproduction link: https://codesandbox.io/s/dank-brook-v1csy
+- Same issues：[#15572](https://github.com/ant-design/ant-design/issues/15572), [#16436](https://github.com/ant-design/ant-design/issues/16436), [#11938](https://github.com/ant-design/ant-design/issues/11938), [#11735](https://github.com/ant-design/ant-design/issues/11735), [#11586](https://github.com/ant-design/ant-design/issues/11586), [#10425](https://github.com/ant-design/ant-design/issues/10425), [#11053](https://github.com/ant-design/ant-design/issues/11053)
+
+Like [the explanation](https://github.com/ant-design/ant-design/issues/11586#issuecomment-429189877) explains, this is because `<DatePicker mode="year" />` does not equal the `YearPicker`, nor is `<RangePicker mode="month" />` equal to `MonthRangePicker`. The `mode` property was added to support [showing time picker panel in DatePicker](https://github.com/ant-design/ant-design/issues/5190) in antd 3.0, which simply controls the displayed panel, and won't change the original date picking behavior of `DatePicker`/`RangePicker` (for instance you will still need to click date cell to finish selection in a `DatePicker`, whatever the `mode` is).
+
+Likewise, `disabledDate` [cannot work on year/month panels](https://github.com/ant-design/ant-design/issues/9008#issuecomment-358554118) of `<DatePicker mode="year/month" />`, but only on cells of date panel.
+
+### Workaround
+
+You can refer to [this article](https://juejin.im/post/5cf65c366fb9a07eca6968f9) or [this article](https://www.cnblogs.com/zyl-Tara/p/10197177.html), using `mode` and `onPanelChange` to encapsulate a `YearPicker` or `MonthRangePicker` for your needs.
+
+Or you can simply upgrade to [antd@4.0](https://github.com/ant-design/ant-design/issues/16911), in which we [added more XxxPickers](https://github.com/ant-design/ant-design/issues/4524#issuecomment-480576884) to meet those requirements, and `disabledDate` could be effect on those pickers too.
+
+## message/notification/Modal.confirm lost styles when set `prefixCls` on ConfigProvider?
+
+Static methods like message/notification/Modal.confirm are not using the same render tree as `<Button />`, but rendered to independent DOM node created by `ReactDOM.render`, which cannot access React context from ConfigProvider. Consider two solutions here:
+
+1. Replace original usages with [message.useMessage](/components/message/#components-message-demo-hooks), [notification.useNotification](/components/notification/#why-i-can-not-access-context-redux-configprovider-localeprefixcls-in-notification) and [Modal.useModal](/components/modal/#why-i-can-not-access-context-redux-configprovider-localeprefixcls-in-modalxxx).
+
+2. Use [App.useApp](/components/app-cn#%E5%9F%BA%E7%A1%80%E7%94%A8%E6%B3%95) to get message/notification/modal instance.
+
+## Why shouldn't I use component internal props or state with ref?
+
+You should only access the API by official doc with ref. Directly access internal `props` or `state` is not recommended which will make your code strong coupling with current version. Any refactor will break your code like refactor with [Hooks](https://reactjs.org/docs/hooks-intro.html) version, delete or rename internal `props` or `state`, adjust internal node constructor, etc.
+
+<div id="why-open"></div>
+
+## Why we need align pop component with `open` prop?
+
+For historical reasons, the display names of the pop components are not uniform, and both `open` and `visible` are used. This makes the memory cost that non-tsx users encounter when developing. It also leads to ambiguity about what name to choose when adding a feature. So we want to unify the attribute name, you can still use the original `visible` and it will still be backward compatible, but we will remove this attribute from the documentation as of v5.
+
+## Dynamic style using `:where` selector which not support old browser.
+
+Please ref dynamic theme document [Legacy Browser Compatible](/docs/react/compatible-style) part.
+
+## How to disable motion?
+
+Config with SeedToken:
+
+```jsx
+import { ConfigProvider } from 'antd';
+
+<ConfigProvider theme={{ token: { motion: false } }}>
+  <App />
+</ConfigProvider>;
+```
+
+## CSS-in-JS css priority conflict with tailwindcss?
+
+Same as above. You can adjust antd css priority to override. Related issue: [#38794](https://github.com/ant-design/ant-design/issues/38794)
+
+## How to let CSS-in-JS work with shadow DOM?
+
+Please ref document [Shadow Dom Usage](/docs/react/compatible-style#shadow-dom-usage).
+
+## How to support SSR？
+
+Please ref dynamic theme document [SSR](/docs/react/server-side-rendering) part.
+
+## What is the relationship between colorPrimary and colorInfo and colorLink in V5?
+
+In the Ant Design Token system, `colorPrimary` and `colorInfo` are both [Seed Token](../react/customize-theme.en-US.md#seed-token), so they are independent of each other. `colorLink` is an [Alias Token](../react/customize-theme.en-US.md#alias-token), inherits `colorInfo` by default, and is independent of `colorPrimary`.
+
+## How to spell Ant Design correctly?
 
 - ✅ **Ant Design**: Capitalized with space, for the design language.
 - ✅ **antd**: all lowercase, for the React UI library.
@@ -122,40 +231,64 @@ Here are some typical wrong examples:
 - ❌ antdesign
 - ❌ Antdesign
 
-### Do you guys have any channel for donation, like PayPal or Alipay?
+## Do you guys have any channel or website for submitting monetary donations, like through PayPal or Alipay?
 
-Not yet.
+[https://opencollective.com/ant-design](https://opencollective.com/ant-design)
 
-### Why not?
+## Use Form's `setFieldsValue` method to report an error if the object type contains `null`
 
-Alibaba pays us.
+When we try to set the form value using the `setFieldsValue` method in the form instance of the form component, if the passed object contains the type null, such as:
 
----
+```tsx
+// This is not real world code, just for explain
+import { Form } from 'antd';
 
-## Errors & Warnings
+type Test = {
+  value: string[] | null;
+};
 
-Here are some errors & warnings that you may meet while using antd, but most of them are not bugs of antd.
+export default () => {
+  const [form] = Form.useForm<Test>();
 
-### Adjacent JSX elements must be wrapped in an enclosing tag
+  form.setFieldsValue({
+    value: null, // Error: Type "null" cannot be assigned to type "string[] | undefined".
+  });
+};
+```
 
-An [answer from StackOverflow](http://stackoverflow.com/questions/25034994/how-to-correctly-wrap-few-td-tags-for-jsxtransformer), and please read [React's documentation](http://facebook.github.io/react/docs/displaying-data.html#components-are-just-like-functions).
+If you encounter the above error, please check the current project `tsconfig.json` contains the following configuration:
 
-### React.createElement: type should not be null, undefined, boolean, or number. It should be a string (for DOM elements) or a ReactClass (for composite components)
+```json
+{
+  "strictNullChecks": true
+}
+```
 
-Please make sure that you import `antd`'s components correctly. Read the corresponding documentation of the `antd`'s version which you use, and pay attention to typos.
+The above problem occurs if `strictNullChecks` is set to `true`, If you can determine the project don't need this configuration (see [strictNullChecks](https://www.typescriptlang.org/zh/tsconfig#strictNullChecks) to judge whether need the configuration). You can try changing to `false` to turn off the control strict check. However, if you do need to enable this feature, you can avoid this situation by using other types instead of `null` when defining types
 
-### rm is not recognized as an internal or external command
+## The antd component reported an error when using the App Router of Next.js
 
-Please read this [issue](https://github.com/ant-design/ant-design/issues/650#issuecomment-164966511), or try Linux/Unix.
+If you are using the App Router of Next.js, when you use the sub-components provided by some antd components, such as `Select.Option `, `Form.Item`, etc., you may get the following error:
 
-### Failed propType: Invalid prop `AAA` of type `BBB` supplied to `CCC`, expected `DDD`. Check the render method of `EEE`.
+```bash
+Error: Cannot access .Option on the server. You cannot dot into a client module from a server component. You can only pass the imported name through.
+```
 
-Please read the corresponding documentation of the `antd`'s version which you use, and make sure that you pass values with correct type to `antd`'s components,
+At present, this problem is waiting for Next.js to give an official solution, before this, if you use sub-components in your page, you can try to add the following client tag at the top of the page to solve this problem:
 
-### Unknown option: xxx/package.json.presets
+```tsx
+'use client';
 
-An [answer from Stack Overflow](http://stackoverflow.com/questions/33685365/unknown-option-babelrc-presets).
-
-### Invariant Violation: findComponentRoot(...): Unable to find element.
-
-You may import React twice. Set React & ReactDOM as external, if you are using webpack, See [#525](https://github.com/ant-design/ant-design/issues/525). If you are using others (browserify, etc...), please read its documentation and find options which can set React & ReactDOM as external.
+// This is not real world code, just for explain
+export default () => {
+  return (
+    <div className="App">
+      <Form>
+        <Form.Item>
+          <Button type="primary">Button</Button>
+        </Form.Item>
+      </Form>
+    </div>
+  );
+};
+```

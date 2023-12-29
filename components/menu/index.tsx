@@ -1,284 +1,68 @@
+import type { MenuRef as RcMenuRef } from 'rc-menu';
+import { ItemGroup } from 'rc-menu';
 import * as React from 'react';
-import RcMenu, { Divider, ItemGroup } from 'rc-menu';
-import * as PropTypes from 'prop-types';
-import classNames from 'classnames';
-import SubMenu from './SubMenu';
-import Item from './MenuItem';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
-import animation from '../_util/openAnimation';
-import warning from '../_util/warning';
+import { forwardRef, useImperativeHandle, useRef } from 'react';
 import { SiderContext } from '../layout/Sider';
+import type { MenuTheme } from './MenuContext';
+import MenuDivider from './MenuDivider';
+import Item, { type MenuItemProps } from './MenuItem';
+import SubMenu, { type SubMenuProps } from './SubMenu';
+import type { ItemType, MenuItemType } from './hooks/useItems';
+import type { MenuProps } from './menu';
+import InternalMenu from './menu';
 
-export interface SelectParam {
-  key: string;
-  keyPath: Array<string>;
-  item: any;
-  domEvent: any;
-  selectedKeys: Array<string>;
+export type { MenuItemGroupProps } from 'rc-menu';
+export type { MenuDividerProps } from './MenuDivider';
+export type { MenuItemProps, MenuProps, MenuTheme, SubMenuProps };
+
+export type MenuRef = {
+  menu: RcMenuRef | null;
+  focus: (options?: FocusOptions) => void;
+};
+
+type ComponentProps = MenuProps & React.RefAttributes<MenuRef>;
+
+type GenericItemType<T = unknown> = T extends infer U extends MenuItemType
+  ? unknown extends U
+    ? ItemType
+    : ItemType<U>
+  : ItemType;
+
+type GenericComponentProps<T = unknown> = Omit<ComponentProps, 'items'> & {
+  items?: GenericItemType<T>[];
+};
+
+type CompoundedComponent = React.ForwardRefExoticComponent<GenericComponentProps> & {
+  Item: typeof Item;
+  SubMenu: typeof SubMenu;
+  Divider: typeof MenuDivider;
+  ItemGroup: typeof ItemGroup;
+};
+
+interface GenericComponent extends Omit<CompoundedComponent, ''> {
+  <T extends MenuItemType>(props: GenericComponentProps<T>): ReturnType<CompoundedComponent>;
 }
 
-export interface ClickParam {
-  key: string;
-  keyPath: Array<string>;
-  item: any;
-  domEvent: any;
+const Menu = forwardRef<MenuRef, MenuProps>((props, ref) => {
+  const menuRef = useRef<RcMenuRef>(null);
+  const context = React.useContext(SiderContext);
+
+  useImperativeHandle(ref, () => ({
+    menu: menuRef.current,
+    focus: (options) => {
+      menuRef.current?.focus(options);
+    },
+  }));
+  return <InternalMenu ref={menuRef} {...props} {...context} />;
+}) as GenericComponent;
+
+Menu.Item = Item;
+Menu.SubMenu = SubMenu;
+Menu.Divider = MenuDivider;
+Menu.ItemGroup = ItemGroup;
+
+if (process.env.NODE_ENV !== 'production') {
+  Menu.displayName = 'Menu';
 }
 
-export type MenuMode = 'vertical' | 'vertical-left' | 'vertical-right' | 'horizontal' | 'inline';
-
-export type MenuTheme = 'light' | 'dark';
-
-export interface MenuProps {
-  id?: string;
-  theme?: MenuTheme;
-  mode?: MenuMode;
-  selectable?: boolean;
-  selectedKeys?: Array<string>;
-  defaultSelectedKeys?: Array<string>;
-  openKeys?: Array<string>;
-  defaultOpenKeys?: Array<string>;
-  onOpenChange?: (openKeys: string[]) => void;
-  onSelect?: (param: SelectParam) => void;
-  onDeselect?: (param: SelectParam) => void;
-  onClick?: (param: ClickParam) => void;
-  style?: React.CSSProperties;
-  openAnimation?: string | Object;
-  openTransitionName?: string | Object;
-  className?: string;
-  prefixCls?: string;
-  multiple?: boolean;
-  inlineIndent?: number;
-  inlineCollapsed?: boolean;
-  subMenuCloseDelay?: number;
-  subMenuOpenDelay?: number;
-  focusable?: boolean;
-  onMouseEnter?: (e: MouseEvent) => void;
-  getPopupContainer?: (triggerNode?: HTMLElement) => HTMLElement;
-}
-
-export interface MenuState {
-  openKeys: string[];
-}
-
-export default class Menu extends React.Component<MenuProps, MenuState> {
-  static Divider = Divider;
-  static Item = Item;
-  static SubMenu = SubMenu;
-  static ItemGroup = ItemGroup;
-  static defaultProps: Partial<MenuProps> = {
-    className: '',
-    theme: 'light', // or dark
-    focusable: false,
-  };
-  static childContextTypes = {
-    inlineCollapsed: PropTypes.bool,
-    antdMenuTheme: PropTypes.string,
-  };
-  static contextTypes = {
-    siderCollapsed: PropTypes.bool,
-    collapsedWidth: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-  };
-
-  context: any;
-  switchingModeFromInline: boolean;
-  inlineOpenKeys: string[] = [];
-
-  constructor(props: MenuProps) {
-    super(props);
-
-    warning(
-      !('onOpen' in props || 'onClose' in props),
-      '`onOpen` and `onClose` are removed, please use `onOpenChange` instead, ' +
-        'see: https://u.ant.design/menu-on-open-change.',
-    );
-
-    warning(
-      !('inlineCollapsed' in props && props.mode !== 'inline'),
-      "`inlineCollapsed` should only be used when Menu's `mode` is inline.",
-    );
-
-    let openKeys;
-    if ('openKeys' in props) {
-      openKeys = props.openKeys;
-    } else if ('defaultOpenKeys' in props) {
-      openKeys = props.defaultOpenKeys;
-    }
-
-    this.state = {
-      openKeys: openKeys || [],
-    };
-  }
-
-  getChildContext() {
-    return {
-      inlineCollapsed: this.getInlineCollapsed(),
-      antdMenuTheme: this.props.theme,
-    };
-  }
-
-  componentWillReceiveProps(nextProps: MenuProps, nextContext: SiderContext) {
-    if (this.props.mode === 'inline' && nextProps.mode !== 'inline') {
-      this.switchingModeFromInline = true;
-    }
-
-    if ('openKeys' in nextProps) {
-      this.setState({ openKeys: nextProps.openKeys! });
-      return;
-    }
-    if (
-      (nextProps.inlineCollapsed && !this.props.inlineCollapsed) ||
-      (nextContext.siderCollapsed && !this.context.siderCollapsed)
-    ) {
-      this.switchingModeFromInline = true;
-      this.inlineOpenKeys = this.state.openKeys;
-      this.setState({ openKeys: [] });
-    }
-    if (
-      (!nextProps.inlineCollapsed && this.props.inlineCollapsed) ||
-      (!nextContext.siderCollapsed && this.context.siderCollapsed)
-    ) {
-      this.setState({ openKeys: this.inlineOpenKeys });
-      this.inlineOpenKeys = [];
-    }
-  }
-
-  restoreModeVerticalFromInline() {
-    if (this.switchingModeFromInline) {
-      this.switchingModeFromInline = false;
-      this.setState({});
-    }
-  }
-
-  // Restore vertical mode when menu is collapsed responsively when mounted
-  // https://github.com/ant-design/ant-design/issues/13104
-  // TODO: not a perfect solution, looking a new way to avoid setting switchingModeFromInline in this situation
-  handleMouseEnter = (e: MouseEvent) => {
-    this.restoreModeVerticalFromInline();
-    const { onMouseEnter } = this.props;
-    if (onMouseEnter) {
-      onMouseEnter(e);
-    }
-  };
-  handleTransitionEnd = (e: TransitionEvent) => {
-    // when inlineCollapsed menu width animation finished
-    // https://github.com/ant-design/ant-design/issues/12864
-    const widthCollapsed = e.propertyName === 'width' && e.target === e.currentTarget;
-    // Fix for <Menu style={{ width: '100%' }} />, the width transition won't trigger when menu is collapsed
-    // https://github.com/ant-design/ant-design-pro/issues/2783
-    const iconScaled =
-      e.propertyName === 'font-size' && (e.target as HTMLElement).className.indexOf('anticon') >= 0;
-    if (widthCollapsed || iconScaled) {
-      this.restoreModeVerticalFromInline();
-    }
-  };
-  handleClick = (e: ClickParam) => {
-    this.handleOpenChange([]);
-
-    const { onClick } = this.props;
-    if (onClick) {
-      onClick(e);
-    }
-  };
-  handleOpenChange = (openKeys: string[]) => {
-    this.setOpenKeys(openKeys);
-
-    const { onOpenChange } = this.props;
-    if (onOpenChange) {
-      onOpenChange(openKeys);
-    }
-  };
-  setOpenKeys(openKeys: string[]) {
-    if (!('openKeys' in this.props)) {
-      this.setState({ openKeys });
-    }
-  }
-
-  getRealMenuMode() {
-    const inlineCollapsed = this.getInlineCollapsed();
-    if (this.switchingModeFromInline && inlineCollapsed) {
-      return 'inline';
-    }
-    const { mode } = this.props;
-    return inlineCollapsed ? 'vertical' : mode;
-  }
-
-  getInlineCollapsed() {
-    const { inlineCollapsed } = this.props;
-    if (this.context.siderCollapsed !== undefined) {
-      return this.context.siderCollapsed;
-    }
-    return inlineCollapsed;
-  }
-
-  getMenuOpenAnimation(menuMode: MenuMode) {
-    const { openAnimation, openTransitionName } = this.props;
-    let menuOpenAnimation = openAnimation || openTransitionName;
-    if (openAnimation === undefined && openTransitionName === undefined) {
-      if (menuMode === 'horizontal') {
-        menuOpenAnimation = 'slide-up';
-      } else if (menuMode === 'inline') {
-        menuOpenAnimation = animation;
-      } else {
-        // When mode switch from inline
-        // submenu should hide without animation
-        if (this.switchingModeFromInline) {
-          menuOpenAnimation = '';
-          this.switchingModeFromInline = false;
-        } else {
-          menuOpenAnimation = 'zoom-big';
-        }
-      }
-    }
-    return menuOpenAnimation;
-  }
-
-  renderMenu = ({ getPopupContainer, getPrefixCls }: ConfigConsumerProps) => {
-    const { prefixCls: customizePrefixCls, className, theme } = this.props;
-    const menuMode = this.getRealMenuMode();
-    const menuOpenAnimation = this.getMenuOpenAnimation(menuMode!);
-
-    const prefixCls = getPrefixCls('menu', customizePrefixCls);
-    const menuClassName = classNames(className, `${prefixCls}-${theme}`, {
-      [`${prefixCls}-inline-collapsed`]: this.getInlineCollapsed(),
-    });
-
-    const menuProps: MenuProps = {
-      openKeys: this.state.openKeys,
-      onOpenChange: this.handleOpenChange,
-      className: menuClassName,
-      mode: menuMode,
-    };
-
-    if (menuMode !== 'inline') {
-      // closing vertical popup submenu after click it
-      menuProps.onClick = this.handleClick;
-      menuProps.openTransitionName = menuOpenAnimation;
-    } else {
-      menuProps.openAnimation = menuOpenAnimation;
-    }
-
-    // https://github.com/ant-design/ant-design/issues/8587
-    const { collapsedWidth } = this.context;
-    if (
-      this.getInlineCollapsed() &&
-      (collapsedWidth === 0 || collapsedWidth === '0' || collapsedWidth === '0px')
-    ) {
-      return null;
-    }
-
-    return (
-      <RcMenu
-        getPopupContainer={getPopupContainer}
-        {...this.props}
-        {...menuProps}
-        prefixCls={prefixCls}
-        onTransitionEnd={this.handleTransitionEnd}
-        onMouseEnter={this.handleMouseEnter}
-      />
-    );
-  };
-
-  render() {
-    return <ConfigConsumer>{this.renderMenu}</ConfigConsumer>;
-  }
-}
+export default Menu;
